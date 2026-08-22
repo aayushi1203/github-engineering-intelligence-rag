@@ -58,7 +58,10 @@ class OpenAIResponsesProvider:
                 json=payload,
                 timeout=self.timeout,
             )
-            response.raise_for_status()
+            if response.is_error:
+                raise LLMProviderError(
+                    f"OpenAI API returned {response.status_code}: {response.text}"
+                )
             data = response.json()
             output_text = data.get("output_text") or self._find_output_text(data)
             if not output_text:

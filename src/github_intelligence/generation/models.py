@@ -26,8 +26,8 @@ class DraftAnswer(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     answer: str = Field(min_length=1)
-    citation_ids: list[str] = Field(default_factory=list)
-    limitations: list[str] = Field(default_factory=list)
+    citation_ids: list[str]
+    limitations: list[str]
 
 
 class GroundedAnswer(BaseModel):
