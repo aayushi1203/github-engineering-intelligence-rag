@@ -1,3 +1,11 @@
+from github_intelligence.generation.benchmark import (
+    GenerationAggregate,
+    GenerationDiagnostic,
+    GenerationEvaluationExample,
+    GenerationEvaluationReport,
+    GenerationEvaluator,
+    load_generation_dataset,
+)
 from github_intelligence.generation.context import build_context
 from github_intelligence.generation.evaluation import evaluate_grounded_answer
 from github_intelligence.generation.models import (
@@ -24,6 +32,11 @@ __all__ = [
     "Citation",
     "CitationValidationError",
     "DraftAnswer",
+    "GenerationAggregate",
+    "GenerationDiagnostic",
+    "GenerationEvaluationExample",
+    "GenerationEvaluationReport",
+    "GenerationEvaluator",
     "GenerationMetrics",
     "GroundedAnswer",
     "GroundedAnswerService",
@@ -32,6 +45,7 @@ __all__ = [
     "OpenAIResponsesProvider",
     "build_context",
     "evaluate_grounded_answer",
+    "load_generation_dataset",
     "parse_citation_ids",
     "validate_draft",
 ]

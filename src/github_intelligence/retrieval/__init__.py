@@ -12,14 +12,14 @@ from github_intelligence.retrieval.vector import (
 
 __all__ = [
     "BM25Retriever",
-    "DocumentChunker",
     "CrossEncoderReranker",
+    "DocumentChunker",
     "QdrantVectorRetriever",
     "QdrantVectorStore",
-    "Retriever",
+    "Reranker",
     "RetrievalMode",
     "RetrievalPipeline",
-    "Reranker",
+    "Retriever",
     "SentenceTransformerEncoder",
     "reciprocal_rank_fusion",
 ]

@@ -1,0 +1,9 @@
+{"question":"Requests mounted under a nested router expose route metadata without the parent prefix. What changed to correct the path information available in the ASGI scope?","repository":"fastapi/fastapi"}
+{"question":"How did FastAPI make a missing frontend build directory acceptable during local development while retaining production validation?","repository":"fastapi/fastapi"}
+{"question":"What fixed malformed Basic authentication challenges when the configured realm contains quotation marks?","repository":"fastapi/fastapi"}
+{"question":"Why could function argument schemas disagree with model validation when aliases were involved, and what corrected that behavior?","repository":"pydantic/pydantic"}
+{"question":"What caused a dataclass field excluded from initialization to consume a positional argument, and which change fixed it?","repository":"pydantic/pydantic"}
+{"question":"How was default-factory inference expanded for defaultdict fields whose values use immutable or ordinary mapping annotations?","repository":"pydantic/pydantic"}
+{"question":"Which changes addressed resource cleanup when asynchronous response iteration is cancelled by a timeout and redesigned the byte stream iterator?","repository":"encode/httpx"}
+{"question":"What changed so a URL with a scheme but empty authority raises HTTPX's URL-specific exception earlier?","repository":"encode/httpx"}
+{"question":"Which change added IPv6 CIDR support to no_proxy matching, and what behavior did it correct?","repository":"encode/httpx"}

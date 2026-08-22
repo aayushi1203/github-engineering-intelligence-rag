@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     generation_max_context_chars: int = Field(default=30_000, ge=1_000)
     generation_max_output_tokens: int = Field(default=1_200, ge=100)
     generation_citation_repair_attempts: int = Field(default=1, ge=0, le=3)
+    investigation_max_steps: int = Field(default=6, ge=1, le=25)
+    investigation_max_mcp_calls: int = Field(default=4, ge=0, le=20)
+    investigation_max_sources: int = Field(default=12, ge=1, le=50)
+    mcp_search_limit: int = Field(default=5, ge=1, le=20)
     log_level: str = "INFO"
 
     @property

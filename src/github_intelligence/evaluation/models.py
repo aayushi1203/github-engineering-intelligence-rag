@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -78,7 +78,7 @@ class EvaluationConfig(BaseModel):
 
 
 class EvaluationReport(BaseModel):
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     dataset_path: str
     repositories: list[str]
     dataset_size: int

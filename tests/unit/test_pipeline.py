@@ -29,7 +29,9 @@ class FakeRetriever:
         self, query: str, *, top_k: int = 10, repository: str | None = None
     ) -> list[RetrievalResult]:
         self.calls.append((query, top_k, repository))
-        filtered = [item for item in self.results if not repository or item.repository == repository]
+        filtered = [
+            item for item in self.results if not repository or item.repository == repository
+        ]
         return filtered[:top_k]
 
 
@@ -77,9 +79,7 @@ def test_hybrid_rerank_changes_order_and_retains_rrf_scores() -> None:
         reranker=FakeReranker(),
         rerank_candidate_pool=3,
     )
-    results = pipeline.search(
-        "semantic authentication", mode=RetrievalMode.HYBRID_RERANK, top_k=2
-    )
+    results = pipeline.search("semantic authentication", mode=RetrievalMode.HYBRID_RERANK, top_k=2)
     assert [item.chunk_id for item in results] == ["semantic", "lexical"]
     assert results[0].reranker_score == 10.0
     assert results[0].rrf_score is not None

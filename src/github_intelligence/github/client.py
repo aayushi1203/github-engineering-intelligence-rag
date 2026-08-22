@@ -5,7 +5,12 @@ from typing import Any
 
 import httpx
 import structlog
-from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from github_intelligence.config import Settings
 from github_intelligence.github.cache import CacheEntry, DiskCache
@@ -28,7 +33,9 @@ class RateLimitError(GitHubError):
 class GitHubClient:
     """Async GitHub REST client with pagination, caching, retries, and rate-limit awareness."""
 
-    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
+    ) -> None:
         self.settings = settings
         self.cache = DiskCache(settings.github_cache_dir, settings.github_cache_ttl_seconds)
         headers = {
@@ -112,7 +119,10 @@ class GitHubClient:
     ) -> AsyncIterator[dict[str, Any]]:
         page = 1
         while not self.settings.github_max_pages or page <= self.settings.github_max_pages:
-            page_params = dict(params or {}) | {"per_page": self.settings.github_per_page, "page": page}
+            page_params = dict(params or {}) | {
+                "per_page": self.settings.github_per_page,
+                "page": page,
+            }
             data = await self.get_json(url, page_params)
             if not isinstance(data, list):
                 raise GitHubError(f"Expected a list from paginated endpoint {url}")
@@ -122,4 +132,3 @@ class GitHubClient:
             if len(data) < self.settings.github_per_page:
                 break
             page += 1
-

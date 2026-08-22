@@ -1,8 +1,8 @@
 import math
 import re
 from collections import Counter
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from github_intelligence.models import DocumentChunk, RetrievalResult
 

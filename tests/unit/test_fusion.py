@@ -4,7 +4,9 @@ from github_intelligence.models import DocumentType, RetrievalResult
 from github_intelligence.retrieval.fusion import reciprocal_rank_fusion
 
 
-def result(identifier: str, score: float, metadata: dict[str, str] | None = None) -> RetrievalResult:
+def result(
+    identifier: str, score: float, metadata: dict[str, str] | None = None
+) -> RetrievalResult:
     return RetrievalResult(
         chunk_id=identifier,
         text=f"Evidence {identifier}",
@@ -35,9 +37,7 @@ def test_rrf_rewards_agreement_and_preserves_backend_diagnostics() -> None:
 
 def test_rrf_deduplicates_and_breaks_ties_by_chunk_id() -> None:
     duplicate = result("b", 6.0)
-    fused = reciprocal_rank_fusion(
-        [result("b", 7.0), duplicate, result("a", 5.0)], [], rrf_k=60
-    )
+    fused = reciprocal_rank_fusion([result("b", 7.0), duplicate, result("a", 5.0)], [], rrf_k=60)
     assert [item.chunk_id for item in fused] == ["b", "a"]
     assert fused[0].bm25_score == 7.0
 

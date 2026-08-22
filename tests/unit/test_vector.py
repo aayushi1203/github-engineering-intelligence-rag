@@ -44,7 +44,9 @@ class FakeVectorStore:
     ) -> list[VectorMatch]:
         records = self.records or []
         matches = [
-            VectorMatch(chunk, sum(left * right for left, right in zip(vector, stored, strict=True)))
+            VectorMatch(
+                chunk, sum(left * right for left, right in zip(vector, stored, strict=True))
+            )
             for chunk, stored in records
             if repository is None or chunk.repository == repository
         ]

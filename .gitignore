@@ -1,4 +1,7 @@
 .env
+.DS_Store
+.idea/
+.vscode/
 .cache/
 .pytest_cache/
 .mypy_cache/
@@ -12,4 +15,3 @@ dist/
 build/
 .venv/
 output/
-

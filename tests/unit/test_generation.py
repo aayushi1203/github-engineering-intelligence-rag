@@ -64,25 +64,32 @@ def test_context_preserves_metadata_and_isolates_injection() -> None:
 
 def test_citation_parsing_and_validation() -> None:
     draft = DraftAnswer(
-        answer="It changed [S1], confirmed by [S2] and [S1].", citation_ids=["S1", "S2"]
+        answer="It changed [S1], confirmed by [S2] and [S1].",
+        citation_ids=["S1", "S2"],
+        limitations=[],
     )
     assert parse_citation_ids(draft.answer) == ["S1", "S2"]
     assert validate_draft(draft, {"S1", "S2"}) == ["S1", "S2"]
 
 
 def test_invalid_citation_is_rejected() -> None:
-    draft = DraftAnswer(answer="Invented [S9].", citation_ids=["S9"])
+    draft = DraftAnswer(answer="Invented [S9].", citation_ids=["S9"], limitations=[])
     with pytest.raises(CitationValidationError):
         validate_draft(draft, {"S1"})
 
 
 def test_uncited_answer_requires_an_explicit_limitation() -> None:
     with pytest.raises(CitationValidationError):
-        validate_draft(DraftAnswer(answer="The regression was fixed."), {"S1"})
+        validate_draft(
+            DraftAnswer(answer="The regression was fixed.", citation_ids=[], limitations=[]),
+            {"S1"},
+        )
     assert (
         validate_draft(
             DraftAnswer(
-                answer="The evidence is insufficient.", limitations=["No fixing PR found."]
+                answer="The evidence is insufficient.",
+                citation_ids=[],
+                limitations=["No fixing PR found."],
             ),
             {"S1"},
         )
@@ -93,8 +100,12 @@ def test_uncited_answer_requires_an_explicit_limitation() -> None:
 def test_structured_answer_and_repair() -> None:
     provider = Provider(
         [
-            DraftAnswer(answer="Bad [S9].", citation_ids=["S9"]),
-            DraftAnswer(answer="The timeout behavior changed [S1].", citation_ids=["S1"]),
+            DraftAnswer(answer="Bad [S9].", citation_ids=["S9"], limitations=[]),
+            DraftAnswer(
+                answer="The timeout behavior changed [S1].",
+                citation_ids=["S1"],
+                limitations=[],
+            ),
         ]
     )
     response = GroundedAnswerService(Pipeline([result()]), provider, repair_attempts=1).ask(
@@ -107,7 +118,7 @@ def test_structured_answer_and_repair() -> None:
 
 
 def test_invalid_citation_after_repair_fails_closed() -> None:
-    provider = Provider([DraftAnswer(answer="Bad [S9].", citation_ids=["S9"])] * 2)
+    provider = Provider([DraftAnswer(answer="Bad [S9].", citation_ids=["S9"], limitations=[])] * 2)
     with pytest.raises(CitationValidationError):
         GroundedAnswerService(Pipeline([result()]), provider).ask(
             "What changed?", repository="acme/repo"
@@ -138,7 +149,9 @@ def test_generation_metrics_are_deterministic() -> None:
         Provider(
             [
                 DraftAnswer(
-                    answer="Timeout behavior changed in version 1.2 [S1].", citation_ids=["S1"]
+                    answer="Timeout behavior changed in version 1.2 [S1].",
+                    citation_ids=["S1"],
+                    limitations=[],
                 )
             ]
         ),

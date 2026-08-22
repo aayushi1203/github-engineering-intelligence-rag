@@ -9,7 +9,7 @@ from github_intelligence.retrieval.reranker import Reranker
 T = TypeVar("T")
 
 
-class RetrievalMode(str, Enum):
+class RetrievalMode(str, Enum):  # noqa: UP042
     BM25 = "bm25"
     VECTOR = "vector"
     HYBRID = "hybrid"

@@ -29,9 +29,10 @@ def mean_reciprocal_rank(rankings: Sequence[Sequence[str]], labels: Sequence[set
         raise ValueError("rankings and labels must have equal length")
     if not rankings:
         return 0.0
-    return sum(reciprocal_rank(ranking, relevant) for ranking, relevant in zip(rankings, labels)) / len(
-        rankings
-    )
+    return sum(
+        reciprocal_rank(ranking, relevant)
+        for ranking, relevant in zip(rankings, labels)  # noqa: B905
+    ) / len(rankings)
 
 
 def ndcg_at_k(retrieved: Sequence[str], relevant: set[str], k: int = 10) -> float:

@@ -28,7 +28,9 @@ def load_evaluation_dataset(path: Path) -> list[EvaluationExample]:
             try:
                 examples.append(EvaluationExample.model_validate_json(line))
             except ValidationError as error:
-                raise ValueError(f"Invalid evaluation entry at line {line_number}: {error}") from error
+                raise ValueError(
+                    f"Invalid evaluation entry at line {line_number}: {error}"
+                ) from error
     if not examples:
         raise ValueError("Evaluation dataset must contain at least one example")
     return examples
@@ -86,7 +88,11 @@ class RetrievalEvaluator:
         retrieved = self._diagnostics(results, relevant)
         retrieved_ids = [item.source_id for item in retrieved]
         first_rank = next(
-            (rank for rank, source_id in enumerate(retrieved_ids, start=1) if source_id in relevant),
+            (
+                rank
+                for rank, source_id in enumerate(retrieved_ids, start=1)
+                if source_id in relevant
+            ),
             None,
         )
         recall_5 = recall_at_k(retrieved_ids, relevant, 5)
@@ -136,9 +142,7 @@ class RetrievalEvaluator:
     @staticmethod
     def _aggregate(diagnostics: list[QueryDiagnostic]) -> ModeMetrics:
         if not diagnostics:
-            return ModeMetrics(
-                recall_at_5=0, recall_at_10=0, mrr=0, ndcg_at_10=0, query_count=0
-            )
+            return ModeMetrics(recall_at_5=0, recall_at_10=0, mrr=0, ndcg_at_10=0, query_count=0)
         return ModeMetrics(
             recall_at_5=fmean(item.recall_at_5 for item in diagnostics),
             recall_at_10=fmean(item.recall_at_10 for item in diagnostics),

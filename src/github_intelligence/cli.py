@@ -3,12 +3,19 @@ import asyncio
 import sys
 from pathlib import Path
 
+from github_intelligence.agent import InvestigationAgent
 from github_intelligence.config import Settings
 from github_intelligence.evaluation import RetrievalEvaluator, load_evaluation_dataset
-from github_intelligence.generation import GroundedAnswerService, OpenAIResponsesProvider
+from github_intelligence.generation import (
+    GenerationEvaluator,
+    GroundedAnswerService,
+    OpenAIResponsesProvider,
+    load_generation_dataset,
+)
 from github_intelligence.github import GitHubClient
 from github_intelligence.ingestion import IngestionOptions, RepositoryIngestor
 from github_intelligence.logging import configure_logging
+from github_intelligence.mcp import GitHubEngineeringTools
 from github_intelligence.models import GitHubDocument, RetrievalResult
 from github_intelligence.retrieval import (
     BM25Retriever,
@@ -57,11 +64,31 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate.add_argument("--output", type=Path, default=Path("output/retrieval-evaluation.json"))
     evaluate.add_argument("--log-level", default=None)
 
+    evaluate_generation = subparsers.add_parser(
+        "evaluate-generation", help="Evaluate generated answers with deterministic metrics"
+    )
+    evaluate_generation.add_argument("--dataset", type=Path, required=True)
+    evaluate_generation.add_argument(
+        "--repo", default=None, help="Evaluate only one owner/name repository"
+    )
+    evaluate_generation.add_argument(
+        "--output", type=Path, default=Path("output/generation-evaluation.json")
+    )
+    evaluate_generation.add_argument("--top-k", type=int, default=None)
+    evaluate_generation.add_argument("--log-level", default=None)
+
     ask = subparsers.add_parser("ask", help="Generate a cited answer from retrieved evidence")
     ask.add_argument("question")
     ask.add_argument("--repo", required=True, help="Repository in owner/name format")
     ask.add_argument("--top-k", type=int, default=None)
     ask.add_argument("--log-level", default=None)
+
+    investigate = subparsers.add_parser(
+        "investigate", help="Run a bounded GitHub tool-assisted engineering investigation"
+    )
+    investigate.add_argument("question")
+    investigate.add_argument("--repo", required=True, help="Repository in owner/name format")
+    investigate.add_argument("--log-level", default=None)
     return parser
 
 
@@ -228,6 +255,97 @@ def run_ask(args: argparse.Namespace, settings: Settings) -> int:
     return 0
 
 
+async def run_investigate(args: argparse.Namespace, settings: Settings) -> int:
+    try:
+        provider = OpenAIResponsesProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            api_url=settings.openai_api_url,
+            max_output_tokens=settings.generation_max_output_tokens,
+        )
+    except ValueError as error:
+        print(f"Configuration error: {error}", file=sys.stderr)
+        return 2
+    pipeline = build_retrieval_pipeline(settings, {RetrievalMode.HYBRID_RERANK})
+    answer_service = GroundedAnswerService(
+        pipeline,
+        provider,
+        top_k=settings.generation_top_k,
+        max_context_chars=settings.generation_max_context_chars,
+        repair_attempts=settings.generation_citation_repair_attempts,
+    )
+    async with GitHubClient(settings) as client:
+        agent = InvestigationAgent(
+            pipeline,
+            answer_service,
+            GitHubEngineeringTools(client, pipeline),
+            max_steps=settings.investigation_max_steps,
+            max_mcp_calls=settings.investigation_max_mcp_calls,
+            max_sources=settings.investigation_max_sources,
+            search_limit=settings.mcp_search_limit,
+        )
+        result = await agent.investigate(args.question, repository=args.repo)
+    print(result.answer.answer)
+    print("\nInvestigation steps")
+    for item in result.investigation_steps:
+        print(f"- {item.step}. {item.detail}")
+    if result.tool_calls:
+        print("\nMCP/tool calls")
+        for call in result.tool_calls:
+            status = "ok" if call.succeeded else "failed"
+            print(f"- {call.tool_name}: {status}, evidence={call.evidence_count}")
+    if result.answer.sources:
+        print("\nSources")
+        for source in result.answer.sources:
+            print(f"- [{source.source_id}] {source.title} ({source.source_url})")
+    if result.limitations:
+        print("\nLimitations")
+        for limitation in result.limitations:
+            print(f"- {limitation}")
+    return 0
+
+
+def run_generation_evaluation(args: argparse.Namespace, settings: Settings) -> int:
+    examples = load_generation_dataset(args.dataset, repository=args.repo)
+    top_k = args.top_k or settings.generation_top_k
+    if top_k < 1:
+        raise ValueError("top-k must be at least 1")
+    try:
+        provider = OpenAIResponsesProvider(
+            api_key=settings.openai_api_key,
+            model=settings.openai_model,
+            api_url=settings.openai_api_url,
+            max_output_tokens=settings.generation_max_output_tokens,
+        )
+    except ValueError as error:
+        print(f"Configuration error: {error}", file=sys.stderr)
+        return 2
+    service = GroundedAnswerService(
+        build_retrieval_pipeline(settings, {RetrievalMode.HYBRID_RERANK}),
+        provider,
+        top_k=top_k,
+        max_context_chars=settings.generation_max_context_chars,
+        repair_attempts=settings.generation_citation_repair_attempts,
+    )
+    report = GenerationEvaluator(service).evaluate(examples, dataset_path=args.dataset, top_k=top_k)
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    aggregate = report.aggregate
+    print(f"Examples evaluated: {aggregate.examples_evaluated}")
+    print(f"Successful generations: {aggregate.successful_generations}")
+    print(f"Mean citation validity: {_format_optional_metric(aggregate.mean_citation_validity)}")
+    print(f"Mean citation coverage: {_format_optional_metric(aggregate.mean_citation_coverage)}")
+    print(f"Mean groundedness: {_format_optional_metric(aggregate.mean_groundedness)}")
+    print(f"Total claims: {aggregate.total_claim_count}")
+    print(f"Cited claims: {aggregate.total_cited_claim_count}")
+    print(f"Output: {args.output}")
+    return 0
+
+
+def _format_optional_metric(value: float | None) -> str:
+    return f"{value:.4f}" if value is not None else "N/A"
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -241,8 +359,12 @@ def main() -> None:
         raise SystemExit(run_search(args, settings))
     if args.command == "evaluate-retrieval":
         raise SystemExit(run_evaluation(args, settings))
+    if args.command == "evaluate-generation":
+        raise SystemExit(run_generation_evaluation(args, settings))
     if args.command == "ask":
         raise SystemExit(run_ask(args, settings))
+    if args.command == "investigate":
+        raise SystemExit(asyncio.run(run_investigate(args, settings)))
 
 
 if __name__ == "__main__":

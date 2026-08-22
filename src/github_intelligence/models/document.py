@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 
-class DocumentType(str, Enum):
+class DocumentType(str, Enum):  # noqa: UP042
     ISSUE = "issue"
     ISSUE_COMMENT = "issue_comment"
     PULL_REQUEST = "pull_request"

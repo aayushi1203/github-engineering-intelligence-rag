@@ -4,6 +4,7 @@ from github_intelligence.generation.context import build_context
 from github_intelligence.generation.models import Citation, DraftAnswer, GroundedAnswer
 from github_intelligence.generation.prompts import SYSTEM_PROMPT, repair_prompt, user_prompt
 from github_intelligence.generation.provider import LLMProvider
+from github_intelligence.models import RetrievalResult
 from github_intelligence.retrieval import RetrievalMode, RetrievalPipeline
 
 CITATION_PATTERN = re.compile(r"\[(S[1-9]\d*)\]")
@@ -52,6 +53,16 @@ class GroundedAnswerService:
         results = self.pipeline.search(
             question, mode=RetrievalMode.HYBRID_RERANK, top_k=self.top_k, repository=repository
         )
+        return self.answer_from_results(question, repository=repository, results=results)
+
+    def answer_from_results(
+        self,
+        question: str,
+        *,
+        repository: str,
+        results: list[RetrievalResult],
+    ) -> GroundedAnswer:
+        """Generate from an explicit evidence set, including source-compatible MCP evidence."""
         context, sources = build_context(results, max_chars=self.max_context_chars)
         if not sources:
             return GroundedAnswer(
