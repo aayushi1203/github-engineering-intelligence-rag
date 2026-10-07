@@ -15,3 +15,7 @@ dist/
 build/
 .venv/
 output/
+artifacts/
+
+# Qdrant server initialization marker (local runtime state).
+/.qdrant-initialized

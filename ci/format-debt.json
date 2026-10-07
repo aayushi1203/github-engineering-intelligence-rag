@@ -1,0 +1,25 @@
+{
+  "reason": "Preserved historical formatting debt. Only byte-identical files are exempt; changed debt files must pass formatting.",
+  "files": {
+    "src/github_intelligence/__init__.py": "d7447e0d19d07c50409616386efb2939192b4c414934fbd9c51a9bec11b34fd0",
+    "src/github_intelligence/cli.py": "3d87cc4ae37a7390f1104be5ca932f04342fb563bae47cc99cdc35fc3812f452",
+    "src/github_intelligence/github/__init__.py": "74207cd58b9816f63fd72b99bab7937fbe00ed01c8c552eb361723019afcdd65",
+    "src/github_intelligence/ingestion/__init__.py": "fda1f7a8bb55f40aaeec423d0ff4554c30f0c5155b83201c6b191ed7790fc284",
+    "src/github_intelligence/logging.py": "de68d59933c5d96dd1e4260877e3eb1111085d3f6209a8bbf27fa26d8a78577a",
+    "src/github_intelligence/post_training/dataset.py": "d0373bbafbd1c0a9aabdd7d6a33dc3666c7684677fb4bc09eea2f17c5e80e181",
+    "src/github_intelligence/post_training/formatting.py": "bd3c19b991002ca6c48b19cd931401e00c9c5b39fb81db7cdd61514b435871dd",
+    "src/github_intelligence/post_training/models.py": "48f14022baf49f2644e7d8fed0f2961bdda9db4b6a0fbaf685f41e04b0de48aa",
+    "src/github_intelligence/post_training/training.py": "b873b2fcad1b8b17411258a4b61a203b410b6c1b49843697c50575eeb6b6d734",
+    "src/github_intelligence/retrieval/chunking.py": "277870291469be47f6dfef742e8b4b5ae8bdc69d2b03067239a87c2221c82e04",
+    "src/github_intelligence/retrieval/pipeline.py": "0bc996df7364eb4bf9248c1fa09631c1bc4400be3b7c91c33d9e8cd19f15fa02",
+    "src/github_intelligence/retrieval/reranker.py": "457048b449ea2d7a90e216afa590fc1f04bf6cf464de6aca8e39f5a581c647c5",
+    "tests/unit/test_cache.py": "46e1dc1ca8fc875086c5ea48e4fa3010df48fe70588be483ad7899162277ce05",
+    "tests/unit/test_chunking.py": "8e424d84356ac6695d5bbc1c876107f48fb71a268f1d41faa6f53f5120c7bef4",
+    "tests/unit/test_client.py": "f9a98f31e75c28728d79c051d23a6c1f4e0ced08a415efc98498397406e989d3",
+    "tests/unit/test_evaluation.py": "2bf4fa17984a1bea953b7f271c2f2ec83e8ab23a24848d30361aabf30d943b67",
+    "tests/unit/test_ingestion.py": "be5fd3382e0f7b3b94e97cc3e16d700920cf91cba0e0235921c7385e634b6ed4",
+    "tests/unit/test_models.py": "b5746a75ffc1b0cb892185fa53f49ecef16ba0ec54e4647f9aa44d92806d3295",
+    "tests/unit/test_normalizers.py": "eb5cf45093073fab5ec15d3323c1dd2779da5df37e4f0ff955aac3528914b818",
+    "tests/unit/test_post_training.py": "e77cebfe2c3f09149ecd2b4ffa936492cf8ad61fe23495426e2c4a3f9cddb901"
+  }
+}

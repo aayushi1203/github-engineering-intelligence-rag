@@ -1,0 +1,143 @@
+name: Code, storage and retrieval quality
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  OPENAI_API_KEY: ""
+  GITHUB_TOKEN: ""
+  HF_TOKEN: ""
+  HF_HUB_DISABLE_TELEMETRY: "1"
+  TOKENIZERS_PARALLELISM: "false"
+  OMP_NUM_THREADS: "2"
+  MKL_NUM_THREADS: "2"
+
+jobs:
+  code-and-unit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install tested dependencies (CPU models)
+        run: |
+          python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
+          python -m pip check
+      - name: Ruff lint
+        run: python -m ruff check .
+      - name: Formatting (explicit historical debt)
+        run: python -m scripts.ci.check_format
+      - name: Strict MyPy (application, migrations and CI helpers)
+        env:
+          MYPYPATH: src
+        run: python -m mypy --strict src migrations scripts
+      - name: Unit tests including deterministic generation/citation tests
+        run: python -m pytest -o addopts= -q tests/unit --junitxml=output/unit.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unit-tests
+          path: output/unit.xml
+          retention-days: 14
+
+  storage-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16.2
+        env:
+          POSTGRES_USER: github_intel_ci
+          POSTGRES_PASSWORD: ci-disposable-only
+          POSTGRES_DB: github_intel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U github_intel_ci -d github_intel_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      qdrant:
+        image: qdrant/qdrant:v1.19.2
+        env:
+          QDRANT__TELEMETRY_DISABLED: "true"
+        ports:
+          - 6333:6333
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://github_intel_ci:ci-disposable-only@127.0.0.1:5432/github_intel_test
+      TEST_QDRANT_URL: http://127.0.0.1:6333
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install tested dependencies
+        run: |
+          python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
+          python -m pip check
+      - name: Wait for PostgreSQL and Qdrant readiness
+        run: python -m scripts.ci.wait_services
+      - name: Real stores, migrations and schema alignment
+        run: python -m pytest -o addopts= -q tests/integration --junitxml=output/integration.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: storage-tests
+          path: output/integration.xml
+          retention-days: 14
+
+  frozen-retrieval:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.lock
+      - name: Install tested dependencies
+        run: |
+          python -m pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r requirements.lock
+          python -m pip install -e . --no-deps
+          python -m pip check
+      - name: Cache only pinned public model downloads
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/huggingface/hub
+          key: public-retrieval-models-${{ runner.os }}-${{ hashFiles('ci/retrieval-benchmark.json') }}
+      - name: Rebuild isolated snapshot, evaluate all modes and enforce gate
+        run: python -m scripts.ci.benchmark --output output/ci-retrieval
+      - name: Standalone report gate (also validates current frozen inputs)
+        run: python -m scripts.ci.retrieval_gate --report output/ci-retrieval/report.json
+      - name: Preserve diagnostics even on regression/failure
+        uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: frozen-retrieval-diagnostics
+          path: output/ci-retrieval/
+          retention-days: 30
