@@ -13,6 +13,8 @@ class CacheEntry(BaseModel):
     body: Any
     etag: str | None = None
     stored_at: float = Field(default_factory=time.time)
+    link_present: bool = False
+    next_page: int | None = None
 
 
 class DiskCache:
@@ -37,7 +39,7 @@ class DiskCache:
         return time.time() - entry.stored_at <= self.ttl_seconds
 
     def set(self, key: str, entry: CacheEntry) -> None:
-        self.directory.mkdir(parents=True, exist_ok=True)
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         fd, temporary_name = tempfile.mkstemp(dir=self.directory, suffix=".tmp")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -46,4 +48,3 @@ class DiskCache:
         finally:
             if os.path.exists(temporary_name):
                 os.unlink(temporary_name)
-

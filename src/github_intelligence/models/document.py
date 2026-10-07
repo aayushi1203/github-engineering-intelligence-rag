@@ -11,6 +11,7 @@ class DocumentType(str, Enum):  # noqa: UP042
     PULL_REQUEST = "pull_request"
     PULL_REQUEST_COMMENT = "pull_request_comment"
     PULL_REQUEST_REVIEW_COMMENT = "pull_request_review_comment"
+    PULL_REQUEST_REVIEW = "pull_request_review"
     COMMIT = "commit"
     RELEASE = "release"
     DOCUMENTATION = "documentation"

@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: github_intel
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local POSTGRES_PASSWORD}
+      POSTGRES_DB: github_intel
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U github_intel -d github_intel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  qdrant:
+    image: qdrant/qdrant:v1.19.2
+    ports:
+      - "127.0.0.1:6333:6333"
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+    volumes:
+      - qdrant_data:/qdrant/storage
+  postgres-test:
+    profiles: [test]
+    image: postgres:16
+    environment:
+      POSTGRES_USER: github_intel_test
+      POSTGRES_PASSWORD: ${POSTGRES_TEST_PASSWORD:?Set a disposable POSTGRES_TEST_PASSWORD}
+      POSTGRES_DB: github_intel_test
+    ports:
+      - "127.0.0.1:${POSTGRES_TEST_PORT:-55432}:5432"
+    # Disposable test data, never mounted on the application's persistent volume.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U github_intel_test -d github_intel_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  postgres_data:
+  qdrant_data:

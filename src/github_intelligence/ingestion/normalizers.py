@@ -64,6 +64,7 @@ def normalize_comment(
             "review_comment": review,
             "path": item.get("path"),
             "commit_id": item.get("commit_id"),
+            "pull_request_review_id": item.get("pull_request_review_id"),
         },
     )
 
@@ -86,6 +87,8 @@ def normalize_pull_request(repo: str, item: dict[str, Any]) -> GitHubDocument:
             "merged_at": item.get("merged_at"),
             "base_ref": (item.get("base") or {}).get("ref"),
             "head_ref": (item.get("head") or {}).get("ref"),
+            "base_sha": (item.get("base") or {}).get("sha"),
+            "head_sha": (item.get("head") or {}).get("sha"),
         },
     )
 
@@ -132,7 +135,14 @@ def normalize_release(repo: str, item: dict[str, Any]) -> GitHubDocument:
 
 
 def normalize_documentation(
-    repo: str, path: str, sha: str, html_url: str, content: str
+    repo: str,
+    path: str,
+    sha: str,
+    html_url: str,
+    content: str,
+    *,
+    branch: str | None = None,
+    commit_sha: str | None = None,
 ) -> GitHubDocument:
     return GitHubDocument(
         text=content,
@@ -141,5 +151,27 @@ def normalize_documentation(
         title=path,
         source_url=cast(HttpUrl, html_url),
         github_id=sha,
-        metadata={"path": path, "sha": sha},
+        metadata={"path": path, "sha": sha}
+        | ({"branch": branch, "commit_sha": commit_sha} if branch is not None else {}),
+    )
+
+
+def normalize_review(repo: str, item: dict[str, Any], parent_number: int) -> GitHubDocument:
+    """A review summary body, excluding separately ingested inline review comments."""
+    return GitHubDocument(
+        text=_text(item.get("body")),
+        document_type=DocumentType.PULL_REQUEST_REVIEW,
+        repository=repo,
+        title=f"PR #{parent_number} review by {_user(item) or 'unknown'}",
+        source_url=item["html_url"],
+        github_id=str(item["id"]),
+        created_at=item.get("submitted_at"),
+        updated_at=item.get("updated_at") or item.get("submitted_at"),
+        metadata={
+            "parent_number": parent_number,
+            "author": _user(item),
+            "state": item.get("state"),
+            "commit_id": item.get("commit_id"),
+            "submitted_at": item.get("submitted_at"),
+        },
     )

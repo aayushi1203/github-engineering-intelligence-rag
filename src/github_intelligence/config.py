@@ -9,12 +9,30 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=False)
 
+    application_root: Path = Path(".cache/application-index")
+    application_embedding_version: str | None = None
+    application_qdrant_mode: str = "server"
+    application_qdrant_url: str = "http://127.0.0.1:6333"
+    application_qdrant_api_key: str | None = Field(default=None, repr=False)
+    application_qdrant_timeout_seconds: float = Field(default=5, gt=0, le=30)
+    github_webhooks_enabled: bool = False
+    github_webhook_secret: str | None = Field(default=None, repr=False)
+    github_webhook_max_body_bytes: int = Field(default=1_000_000, ge=1024, le=25_000_000)
+    worker_concurrency: int = Field(default=1, ge=1, le=8)
+    worker_lease_seconds: int = Field(default=90, ge=3, le=3600)
+    worker_heartbeat_seconds: float = Field(default=15, gt=0, le=300)
+    worker_poll_seconds: float = Field(default=2, ge=0.1, le=60)
+    worker_max_attempts: int = Field(default=4, ge=1, le=10)
+    worker_retry_base_seconds: float = Field(default=5, ge=0, le=300)
+    worker_retry_max_seconds: float = Field(default=300, ge=0, le=3600)
     github_token: str | None = Field(default=None, repr=False)
+    database_url: str | None = Field(default=None, repr=False)
     github_api_url: str = "https://api.github.com"
     github_cache_dir: Path = Path(".cache/github")
     github_cache_ttl_seconds: int = Field(default=3600, ge=0)
     github_request_timeout_seconds: float = Field(default=30, gt=0)
     github_max_retries: int = Field(default=4, ge=1, le=10)
+    github_max_retry_wait_seconds: float = Field(default=300, ge=0, le=3600)
     github_per_page: int = Field(default=100, ge=1, le=100)
     github_max_pages: int = Field(default=0, ge=0)
     github_doc_max_bytes: int = Field(default=1_000_000, ge=1)

@@ -2,12 +2,22 @@ from typing import Any
 
 import pytest
 
+from github_intelligence.config import Settings
 from github_intelligence.ingestion import IngestionOptions, RepositoryIngestor
 from github_intelligence.models import DocumentType
 
 
 class FakeClient:
-    async def paginate(self, url: str, params: Any = None):  # type: ignore[no-untyped-def]
+    settings = Settings(_env_file=None)
+    async def get_json(self, url: str, **kwargs: Any) -> dict[str, Any]:
+        if url == "/repos/o/r":
+            return {
+                "id": 42, "full_name": "o/r",
+                "html_url": "https://github.com/o/r", "default_branch": "main",
+            }
+        return {"sha": "a" * 40, "commit": {"tree": {"sha": "b" * 40}}}
+
+    async def paginate(self, url: str, params: Any = None, **kwargs: Any):  # type: ignore[no-untyped-def]
         if url.endswith("/issues"):
             yield {"id": 1, "number": 1, "title": "Bug", "body": "broken",
                    "html_url": "https://github.com/o/r/issues/1", "comments": 0, "labels": []}

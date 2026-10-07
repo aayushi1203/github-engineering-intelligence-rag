@@ -17,6 +17,16 @@ from github_intelligence.ingestion import IngestionOptions, RepositoryIngestor
 from github_intelligence.logging import configure_logging
 from github_intelligence.mcp import GitHubEngineeringTools
 from github_intelligence.models import GitHubDocument, RetrievalResult
+from github_intelligence.post_training import (
+    build_corpus_tool_examples,
+    build_policy_dataset,
+    evaluate_policy_checkpoint,
+    load_corpora,
+    load_evaluations,
+    load_manifest,
+    summarize_dataset,
+    write_policy_dataset,
+)
 from github_intelligence.retrieval import (
     BM25Retriever,
     CrossEncoderReranker,
@@ -32,12 +42,55 @@ from github_intelligence.retrieval import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="GitHub engineering intelligence toolkit")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    serve = subparsers.add_parser("serve", help="Run the trusted-local HTTP API")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--log-level", default=None)
+    worker = subparsers.add_parser("worker", help="Run the PostgreSQL-backed ingestion worker")
+    worker.add_argument("--once", action="store_true", help="Claim at most one job then exit")
+    worker.add_argument("--log-level", default=None)
     ingest = subparsers.add_parser("ingest")
     ingest.add_argument("repository", help="GitHub repository in owner/name format")
     ingest.add_argument("--output", type=Path, required=True, help="Destination JSONL file")
     ingest.add_argument("--no-comments", action="store_true")
     ingest.add_argument("--no-docs", action="store_true")
+    ingest.add_argument("--no-reviews", action="store_true")
+    ingest.add_argument(
+        "--cached", action="store_true", help="Permit cached reads; default is fresh"
+    )
+    ingest.add_argument(
+        "--allow-incomplete", action="store_true",
+        help="Publish explicitly marked limited/truncated scans; never failed scans",
+    )
     ingest.add_argument("--log-level", default=None)
+
+    metadata = subparsers.add_parser(
+        "import-metadata", help="Persist JSONL metadata without changing retrieval indexes"
+    )
+    metadata.add_argument("input", type=Path)
+    metadata.add_argument("--log-level", default=None)
+
+    incremental = subparsers.add_parser(
+        "index-incremental", help="Index a validated scan into isolated application stores"
+    )
+    incremental.add_argument("input", type=Path)
+    incremental.add_argument("--repo", required=True)
+    incremental.add_argument("--root", type=Path, default=Path(".cache/application-index"))
+    incremental.add_argument("--embedding-version", required=True,
+                             help="Explicit immutable model/version identifier")
+    incremental.add_argument("--reconcile", action="store_true",
+                             help="Permit only authoritative, exact-scope documentation deletion")
+    incremental.add_argument("--qdrant-mode", choices=("embedded", "server"), default="embedded")
+    incremental.add_argument("--log-level", default=None)
+    retire = subparsers.add_parser(
+        "retire-index", help="Retire a non-current revision after its readers have drained"
+    )
+    retire.add_argument("revision", help="Indexing operation UUID")
+    retire.add_argument("--repo", required=True)
+    retire.add_argument("--root", type=Path, default=Path(".cache/application-index"))
+    retire.add_argument("--embedding-version", required=True)
+    retire.add_argument("--qdrant-mode", choices=("embedded", "server"), default="embedded")
+    retire.add_argument("--log-level", default=None)
 
     index = subparsers.add_parser("index", help="Chunk and index an ingestion JSONL file")
     index.add_argument("input", type=Path, help="Phase 1 JSONL file")
@@ -89,20 +142,83 @@ def build_parser() -> argparse.ArgumentParser:
     investigate.add_argument("question")
     investigate.add_argument("--repo", required=True, help="Repository in owner/name format")
     investigate.add_argument("--log-level", default=None)
+
+    prepare_policy = subparsers.add_parser(
+        "prepare-policy-data",
+        help="Build a provenance-checked, repository-disjoint tool-policy dataset",
+    )
+    prepare_policy.add_argument("--evaluation", type=Path, required=True)
+    prepare_policy.add_argument("--corpus", type=Path, action="append", required=True)
+    prepare_policy.add_argument("--splits", type=Path, required=True)
+    prepare_policy.add_argument(
+        "--output", type=Path, default=Path("data/post_training/policy.jsonl")
+    )
+    prepare_policy.add_argument(
+        "--augment-training-from-corpus",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Add at most N provenance-backed routing examples from training repositories",
+    )
+    prepare_policy.add_argument(
+        "--augment-test-from-corpus",
+        type=int,
+        default=0,
+        metavar="N",
+        help="Add at most N provenance-backed routing examples from held-out repositories",
+    )
+    prepare_policy.add_argument("--log-level", default=None)
+
+    train_policy = subparsers.add_parser(
+        "train-policy", help="Run the isolated QLoRA SFT or GRPO tool-policy experiment"
+    )
+    train_policy.add_argument("--dataset", type=Path, required=True)
+    train_policy.add_argument("--stage", choices=("sft", "grpo"), required=True)
+    train_policy.add_argument("--model", default="Qwen/Qwen3-4B")
+    train_policy.add_argument("--output", type=Path, required=True)
+    train_policy.add_argument("--max-steps", type=int, default=None)
+    train_policy.add_argument("--seed", type=int, default=42)
+    train_policy.add_argument("--num-generations", type=int, default=4)
+    train_policy.add_argument("--log-level", default=None)
+
+    evaluate_policy = subparsers.add_parser(
+        "evaluate-policy", help="Evaluate one policy checkpoint with deterministic metrics"
+    )
+    evaluate_policy.add_argument("--dataset", type=Path, required=True)
+    evaluate_policy.add_argument("--model", required=True)
+    evaluate_policy.add_argument("--output", type=Path, required=True)
+    evaluate_policy.add_argument(
+        "--split", choices=("development", "test"), default="test"
+    )
+    evaluate_policy.add_argument("--max-new-tokens", type=int, default=192)
+    evaluate_policy.add_argument("--log-level", default=None)
     return parser
 
 
 async def run_ingest(args: argparse.Namespace, settings: Settings) -> int:
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    count = 0
+    from github_intelligence.ingestion.service import IngestionError
+    from github_intelligence.ingestion.snapshot import publish_snapshot, report_path
+
     async with GitHubClient(settings) as client:
         ingestor = RepositoryIngestor(client, settings.github_doc_max_bytes)
-        options = IngestionOptions(not args.no_comments, not args.no_docs)
-        with args.output.open("w", encoding="utf-8") as output:
-            async for document in ingestor.ingest(args.repository, options):
-                output.write(document.model_dump_json() + "\n")
-                count += 1
-    print(f"Wrote {count} documents to {args.output}")
+        options = IngestionOptions(not args.no_comments, not args.no_docs,
+                                   not args.no_reviews, not args.cached)
+        try:
+            report = await publish_snapshot(ingestor, args.repository, args.output, options,
+                                            allow_incomplete=args.allow_incomplete)
+        except (IngestionError, OSError, ValueError) as error:
+            code = (
+                error.code if isinstance(error, IngestionError)
+                else "invalid_input_or_publication_failure"
+            )
+            print(
+                f"Ingestion failed: {code}. No successful snapshot was published.", file=sys.stderr
+            )
+            return 1
+    count = sum(source.documents_emitted for source in report.sources.values())
+    scope = "full" if report.full_snapshot else "scoped/partial"
+    print(f"Published {count} documents ({scope}) to {args.output}")
+    print(f"Scan metadata: {report_path(args.output)}")
     return 0
 
 
@@ -113,12 +229,125 @@ def load_documents(path: Path) -> list[GitHubDocument]:
         return [GitHubDocument.model_validate_json(line) for line in source if line.strip()]
 
 
+def run_import_metadata(args: argparse.Namespace, settings: Settings) -> int:
+    # Optional dependencies load only for this explicitly requested operation.
+    if not settings.database_url:
+        print("DATABASE_URL is required for import-metadata.", file=sys.stderr)
+        return 1
+    try:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from github_intelligence.persistence.database import (
+            PersistenceError,
+            create_database_engine,
+            session_factory,
+        )
+        from github_intelligence.persistence.operations import import_documents
+    except ImportError:
+        print(
+            "Install metadata dependencies with: pip install -e '.[persistence]'", file=sys.stderr
+        )
+        return 1
+    try:
+        documents = load_documents(args.input)
+    except (OSError, ValueError):
+        print("Metadata input must be a valid GitHubDocument JSONL file.", file=sys.stderr)
+        return 1
+    try:
+        engine = create_database_engine(settings.database_url)
+        try:
+            with session_factory(engine).begin() as session:
+                counts = import_documents(session, documents)
+        finally:
+            engine.dispose()
+    except (PersistenceError, SQLAlchemyError, ValueError):
+        # Database errors may contain credentials, bound values, or user content.
+        print(
+            "Metadata import failed; verify input identities, PostgreSQL connectivity, "
+            "and `alembic upgrade head`. No changes were committed.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"Metadata: new={counts.new} changed={counts.changed} unchanged={counts.unchanged}")
+    print("New/changed documents are pending; retrieval indexes were not modified.")
+    return 0
+
+
 def vector_retriever(settings: Settings) -> QdrantVectorRetriever:
     settings.qdrant_path.mkdir(parents=True, exist_ok=True)
     return QdrantVectorRetriever(
         QdrantVectorStore(settings.qdrant_path, settings.qdrant_collection),
         SentenceTransformerEncoder(settings.embedding_model, settings.embedding_device),
     )
+
+
+def run_incremental(args: argparse.Namespace, settings: Settings) -> int:
+    from uuid import UUID
+
+    try:
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from github_intelligence.indexing.coordinator import IncrementalCoordinator, IndexingError
+        from github_intelligence.indexing.storage import IncrementalVectorStore
+        from github_intelligence.persistence.database import (
+            PersistenceError,
+            create_database_engine,
+        )
+    except ImportError:
+        print("Incremental indexing requires the persistence extra", file=sys.stderr)
+        return 2
+    if args.root.resolve() in {settings.index_dir.resolve(), settings.qdrant_path.resolve()}:
+        print("Application root must be separate from offline benchmark stores", file=sys.stderr)
+        return 2
+    engine = None
+    store = None
+    try:
+        engine = create_database_engine(settings.database_url)
+        store = IncrementalVectorStore(
+            args.root / "qdrant" if args.qdrant_mode == "embedded" else None,
+            "application_chunks",
+            url=settings.application_qdrant_url if args.qdrant_mode == "server" else None,
+            api_key=settings.application_qdrant_api_key,
+            timeout=settings.application_qdrant_timeout_seconds,
+        )
+        coordinator = IncrementalCoordinator(
+            engine, store,
+            SentenceTransformerEncoder(settings.embedding_model, settings.embedding_device),
+            args.root, embedding_version=f"{settings.embedding_model}@{args.embedding_version}",
+            chunker=DocumentChunker(
+                settings.chunk_max_words, settings.validated_chunk_overlap_words
+            ),
+        )
+        if args.command == "retire-index":
+            coordinator.retire_revision(UUID(args.revision), repository=args.repo)
+            print(f"Retired revision {args.revision}; current READY preserved")
+        else:
+            operation = coordinator.run(args.input, repository=args.repo, reconcile=args.reconcile)
+            assert operation.plan is not None
+            print(" ".join(f"{key}={value}" for key, value in operation.plan["counts"].items()))
+            print(f"revision={operation.id} status={operation.status}")
+            incomplete = {family: scan["status"]
+                          for family, scan in operation.scan_report["sources"].items()
+                          if scan["status"] != "complete"}
+            if incomplete:
+                print(f"Incomplete/excluded scan families: {incomplete}")
+            for identity, reason in operation.plan["preserved"].items():
+                print(f"Preserved {identity}: {reason}")
+        return 0
+    except IndexingError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except (PersistenceError, SQLAlchemyError, ValueError, OSError):
+        print(
+            "Incremental operation failed: check database, scan/report, scope and storage",
+            file=sys.stderr,
+        )
+        return 1
+    finally:
+        if store is not None:
+            store.client.close()
+        if engine is not None:
+            engine.dispose()
 
 
 def run_index(args: argparse.Namespace, settings: Settings) -> int:
@@ -346,11 +575,151 @@ def _format_optional_metric(value: float | None) -> str:
     return f"{value:.4f}" if value is not None else "N/A"
 
 
+def run_prepare_policy_data(args: argparse.Namespace) -> int:
+    evaluations = load_evaluations(args.evaluation)
+    documents = load_corpora(args.corpus)
+    manifest = load_manifest(args.splits)
+    examples = build_policy_dataset(evaluations, documents, manifest)
+    examples.extend(
+        build_corpus_tool_examples(
+            documents, manifest, limit=args.augment_training_from_corpus
+        )
+    )
+    labeled_sources = {
+        (example.repository, evidence.source_id)
+        for example in examples
+        for evidence in example.gold_evidence
+    }
+    from github_intelligence.post_training import DatasetSplit
+
+    examples.extend(
+        build_corpus_tool_examples(
+            documents,
+            manifest,
+            limit=args.augment_test_from_corpus,
+            split=DatasetSplit.TEST,
+            excluded_sources=labeled_sources,
+        )
+    )
+    write_policy_dataset(args.output, examples)
+    summary = summarize_dataset(examples)
+    print(f"Examples: {summary.examples}")
+    for split, count in summary.split_counts.items():
+        repositories = ", ".join(summary.repositories[split])
+        print(f"{split.value}: {count} ({repositories})")
+    print(f"Provenance label coverage: {summary.label_coverage:.4f}")
+    print(f"Output: {args.output}")
+    return 0
+
+
+def run_train_policy(args: argparse.Namespace) -> int:
+    if args.max_steps is not None and args.max_steps < 1:
+        raise ValueError("max-steps must be at least 1")
+    if args.num_generations < 2:
+        raise ValueError("num-generations must be at least 2")
+    from github_intelligence.post_training.training import train_grpo, train_sft
+
+    args.output.mkdir(parents=True, exist_ok=True)
+    if args.stage == "sft":
+        train_sft(
+            args.dataset,
+            args.output,
+            model_name=args.model,
+            max_steps=args.max_steps or 75,
+            seed=args.seed,
+        )
+    else:
+        train_grpo(
+            args.dataset,
+            args.output,
+            model_name=args.model,
+            max_steps=args.max_steps or 150,
+            seed=args.seed,
+            num_generations=args.num_generations,
+        )
+    print(f"Saved {args.stage.upper()} adapter/checkpoint to {args.output}")
+    return 0
+
+
+def run_policy_evaluation(args: argparse.Namespace) -> int:
+    from github_intelligence.post_training import DatasetSplit
+
+    if args.max_new_tokens < 1:
+        raise ValueError("max-new-tokens must be at least 1")
+    report = evaluate_policy_checkpoint(
+        args.dataset,
+        args.model,
+        args.output,
+        split=DatasetSplit(args.split),
+        max_new_tokens=args.max_new_tokens,
+    )
+    metrics = report.metrics
+    print(f"Examples: {metrics.examples}")
+    print(f"Tool-selection accuracy: {metrics.tool_selection_accuracy:.4f}")
+    print(f"Structured action validity: {metrics.structured_action_validity:.4f}")
+    print(f"Mean policy reward: {metrics.mean_policy_reward:.4f}")
+    print(f"Malformed-output rate: {metrics.malformed_output_rate:.4f}")
+    for group, group_metrics in report.metrics_by_group.items():
+        print(
+            f"{group}: n={group_metrics.examples}, "
+            f"tool_accuracy={group_metrics.tool_selection_accuracy:.4f}, "
+            f"validity={group_metrics.structured_action_validity:.4f}, "
+            f"reward={group_metrics.mean_policy_reward:.4f}, "
+            f"malformed={group_metrics.malformed_output_rate:.4f}"
+        )
+    print(f"Output: {args.output}")
+    return 0
+
+
+def run_application(args: argparse.Namespace, settings: Settings) -> int:
+    import signal
+
+    try:
+        from github_intelligence.application.runtime import Runtime
+        runtime = Runtime(settings)
+    except (ImportError, ValueError):
+        print(
+            "Application startup failed: install the application extra and check configuration",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        if args.command == "serve":
+            import uvicorn
+
+            from github_intelligence.application.api import create_app
+            uvicorn.run(create_app(runtime=runtime), host=args.host, port=args.port,
+                        access_log=False, log_level="warning", limit_concurrency=32)
+        else:
+            from github_intelligence.application.worker import Worker
+            worker = Worker(runtime)
+            previous = {}
+            for signum in (signal.SIGINT, signal.SIGTERM):
+                previous[signum] = signal.signal(signum, lambda *_: worker.stop.set())
+            try:
+                if args.once:
+                    worker.run_one()
+                else:
+                    worker.run()
+            finally:
+                for signum, handler in previous.items():
+                    signal.signal(signum, handler)
+        return 0
+    finally:
+        runtime.close()
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     settings = Settings()
     configure_logging(args.log_level or settings.log_level)
+    if args.command in {"serve", "worker"}:
+        raise SystemExit(run_application(args, settings))
+    if args.command in {"index-incremental", "retire-index"}:
+        raise SystemExit(run_incremental(args, settings))
+    if args.command == "import-metadata":
+        raise SystemExit(run_import_metadata(args, settings))
     if args.command == "ingest":
         raise SystemExit(asyncio.run(run_ingest(args, settings)))
     if args.command == "index":
@@ -365,6 +734,12 @@ def main() -> None:
         raise SystemExit(run_ask(args, settings))
     if args.command == "investigate":
         raise SystemExit(asyncio.run(run_investigate(args, settings)))
+    if args.command == "prepare-policy-data":
+        raise SystemExit(run_prepare_policy_data(args))
+    if args.command == "train-policy":
+        raise SystemExit(run_train_policy(args))
+    if args.command == "evaluate-policy":
+        raise SystemExit(run_policy_evaluation(args))
 
 
 if __name__ == "__main__":
